@@ -15,7 +15,7 @@ pw_add() {
         #
         # Regarding usage of '/dev/urandom' instead of '/dev/random'.
         # See: https://www.2uo.de/myths-about-urandom
-        pass=$(LC_ALL=C tr -dc "${PASH_PATTERN:-_A-Z-a-z-0-9}" < /dev/urandom |
+        pass=$(LC_ALL=C tr -dc "${PASH_PATTERN:-,#@+_A-Z-a-z-0-9}" < /dev/urandom |
             dd ibs=1 obs=1 count="${PASH_LENGTH:-50}" 2>/dev/null)
 
     else
@@ -51,6 +51,12 @@ pw_add() {
 		$pass
 	EOF
     printf '%s\n' "Saved '$name' to the store."
+	
+    # git support
+    [ "$PASH_GIT" = "1" ] && {
+        git add "$name.gpg" || return
+        git commit -m "$name.gpg"
+    }
 }
 
 pw_del() {
@@ -61,6 +67,12 @@ pw_del() {
         # entry. It's fine if this fails as it means that
         # another entry also lives in the same directory.
         rmdir -p "${1%/*}" 2>/dev/null || :
+        
+	# git support
+        [ "$PASH_GIT" = "1" ] && {
+            git rm -qr "$1.gpg" || return
+	    git commit -m "Remove $1 from store."
+        }
     }
 }
 
@@ -98,6 +110,51 @@ pw_tree() {
         die "'tree' command not found"
 
     tree --noreport | sed 's/\.gpg$//'
+}
+
+pw_head() {
+    pw_show "$1" | head -1
+}
+
+pw_edit() {
+    name="$1"
+
+    if [ "$PASH_KEYID" ]; then
+        set -- --trust-model always -ar "$PASH_KEYID" -e
+    else
+        set -- -c
+    fi
+
+    TMP_DIR="$(mktemp -d -t "pash-edit.XXXXXXXX")"
+    # Get base name; e.g. websites/github becomes github
+    TMP_FILE="$TMP_DIR/${name##*/}"
+
+    # Remove unencrypted password file when done or if following commands fail
+    trap 'rm -rf $TMP_DIR' INT EXIT
+
+    "$gpg" -qo "$TMP_FILE" -d "$name.gpg"
+
+    "${EDITOR:-vi}" "$TMP_FILE"
+
+    "$gpg" --yes -o "$name.gpg" "$@" "$TMP_FILE"
+
+    # git support
+    [ "$PASH_GIT" = "1" ] && {
+        git add "$name.gpg" || return
+        git commit -m "Edit password for $name using ${EDITOR:-vi}."
+    }
+}
+
+pw_git_pull() {
+    cd "$PASH_DIR" ||
+        die "Can't access password directory"
+    git pull
+}
+
+pw_git_push() {
+    cd "$PASH_DIR" ||
+        die "Can't access password directory"
+    git push
 }
 
 yn() {
@@ -159,8 +216,12 @@ pash 2.3.0 - simple password manager.
 => [c]opy [name] - Copy entry to the clipboard.
 => [d]el  [name] - Delete a password entry.
 => [l]ist        - List all entries.
-=> [s]how [name] - Show password for an entry.
+=> [s]how [name] - Show all lines of password for an entry.
 => [t]ree        - List all entries in a tree.
+=> [h]ead        - Show first line of a password from an entry.
+=> [e]dit        - Edit a password.
+=> [gd]own       - Pull changes from git directory.
+=> [gu]p         - Push changes to git directory.
 
 Using a key pair:  export PASH_KEYID=XXXXXXXX
 Password length:   export PASH_LENGTH=50
@@ -168,6 +229,7 @@ Password pattern:  export PASH_PATTERN=_A-Z-a-z-0-9
 Store location:    export PASH_DIR=~/.local/share/pash
 Clipboard tool:    export PASH_CLIP='xclip -sel c'
 Clipboard timeout: export PASH_TIMEOUT=15 ('off' to disable)
+Using git:         export PASH_GIT=1
 "
 exit 0
 }
@@ -175,6 +237,7 @@ exit 0
 main() {
     : "${PASH_DIR:=${XDG_DATA_HOME:=$HOME/.local/share}/pash}"
 
+    : "${PASH_GIT:=0}"
     # Look for both 'gpg' and 'gpg2',
     # preferring 'gpg2' if it is available.
     command -v gpg  >/dev/null 2>&1 && gpg=gpg
@@ -189,10 +252,10 @@ main() {
     cd "$PASH_DIR" ||
         die "Can't access password directory"
 
-    glob "$1" '[acds]*' && [ -z "$2" ] &&
+    glob "$1" '[aceds]*' && [ -z "$2" ] &&
         die "Missing [name] argument"
 
-    glob "$1" '[cds]*' && [ ! -f "$2.gpg" ] &&
+    glob "$1" '[ceds]*' && [ ! -f "$2.gpg" ] &&
         die "Pass file '$2' doesn't exist"
 
     glob "$1" 'a*' && [ -f "$2.gpg" ] &&
@@ -224,6 +287,10 @@ main() {
         c*) pw_copy "$2" ;;
         d*) pw_del  "$2" ;;
         s*) pw_show "$2" ;;
+        h*) pw_head "$2" ;;
+        e*) pw_edit "$2" ;;
+        gu*) pw_git_push ;;
+        gd*) pw_git_pull ;;
         l*) pw_list ;;
         t*) pw_tree ;;
         *)  usage
