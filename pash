@@ -53,10 +53,8 @@ pw_add() {
     printf '%s\n' "Saved '$name' to the store."
 	
     # git support
-    [ "$PASH_GIT" = "1" ] && {
-        git add "$name.gpg" || return
-        git commit -m "$name.gpg"
-    }
+    git add "$name.gpg" || return
+    git commit -m "$name.gpg"
 }
 
 pw_del() {
@@ -69,10 +67,8 @@ pw_del() {
         rmdir -p "${1%/*}" 2>/dev/null || :
         
 	# git support
-        [ "$PASH_GIT" = "1" ] && {
-            git rm -qr "$1.gpg" || return
+        git rm -qr "$1.gpg" || return
 	    git commit -m "Remove $1 from store."
-        }
     }
 }
 
@@ -139,10 +135,8 @@ pw_edit() {
     "$gpg" --yes -o "$name.gpg" "$@" "$TMP_FILE"
 
     # git support
-    [ "$PASH_GIT" = "1" ] && {
-        git add "$name.gpg" || return
-        git commit -m "Edit password for $name using ${EDITOR:-vi}."
-    }
+    git add "$name.gpg" || return
+    git commit -m "Edit password for $name using ${EDITOR:-vi}."
 }
 
 pw_git_pull() {
@@ -229,7 +223,6 @@ Password pattern:  export PASH_PATTERN=_A-Z-a-z-0-9
 Store location:    export PASH_DIR=~/.local/share/pash
 Clipboard tool:    export PASH_CLIP='xclip -sel c'
 Clipboard timeout: export PASH_TIMEOUT=15 ('off' to disable)
-Using git:         export PASH_GIT=1
 "
 exit 0
 }
@@ -237,7 +230,6 @@ exit 0
 main() {
     : "${PASH_DIR:=${XDG_DATA_HOME:=$HOME/.local/share}/pash}"
 
-    : "${PASH_GIT:=0}"
     # Look for both 'gpg' and 'gpg2',
     # preferring 'gpg2' if it is available.
     command -v gpg  >/dev/null 2>&1 && gpg=gpg
